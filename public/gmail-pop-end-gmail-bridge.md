@@ -1,5 +1,5 @@
 ---
-title: Gmailの外部POP取得終了に備えて、IMAPからGmail APIへ取り込むセルフホスト型Bridgeを作った
+title: Gmailの外部POP取得終了に備えて、外部メールを本家Gmailへ集約するBridgeを作った
 tags:
   - Gmail
   - Python
@@ -16,225 +16,297 @@ posting_campaign_uuid: null
 agreed_posting_campaign_term: false
 ---
 
-会社のメールをGmailで扱いたい。しかし、Gmailの外部POP取得には終了予定があり、そもそも接続先によってはPOPが使えません。
+Gmailの外部POP取得終了に備えて、会社メールなどを**本家Gmailへ取り込むためのセルフホスト型Bridge**を作りました。
 
-そこで、外部メールサーバーからIMAPでメールを取得し、Gmail APIで自分のGmailへ取り込む **Gmail Bridge** を作りました。Pythonで実装し、QNAP NASのContainer Stationで動かしています。
+名前はそのまま **Gmail Bridge** です。
 
-この記事では、導入コマンドだけでなく、「何をGmailへ集約したかったのか」と、取り込み・通知・障害復旧をどう分けたかを紹介します。
-
-- ソース: https://github.com/sosboy-san/gmail_bridge
-- 正式版: [v1.0.0](https://github.com/sosboy-san/gmail_bridge/releases/tag/v1.0.0)
+- GitHub: https://github.com/sosboy-san/gmail_bridge
+- Release: https://github.com/sosboy-san/gmail_bridge/releases/tag/v1.0.0
 - Docker Hub: https://hub.docker.com/r/sosboy/gmail-bridge
-- ライセンス: MIT
+- License: MIT
 
-記載内容は2026年9月30日時点です。実装はv1.0.0と現在の公開資料を確認しています。導入時は最新のReleaseと制限事項も確認してください。
+Pythonで実装し、現在はQNAP NASのContainer Station上で実際に運用しています。
 
-## 背景：外部メールを「見る」と、Gmailへ「入れる」は違う
+この記事では細かな実装解説よりも、
 
-Gmailアプリへ外部のIMAPアカウントを追加すれば、スマートフォンでそのメールを読むことはできます。ただ、それだけで外部メールが自分のGmailアカウントに保存されるわけではありません。
+**なぜわざわざBridgeを作ったのか**
 
-今回欲しかったのは、外部メールを**本家Gmailのメールボックスに入れる**仕組みです。
+を中心に書きます。
 
-| 方法 | メールの保存先 | 今回の目的との関係 |
-| --- | --- | --- |
-| Gmailアプリに外部IMAPアカウントを追加 | 外部メールサーバー | スマホで閲覧できるが、Gmail本体への取り込みとは別 |
-| 外部サーバーからGmailへ自動転送 | Gmailにも届く | 転送が利用でき、運用条件が合えば有力な選択肢 |
-| Gmail BridgeでIMAP → Gmail API | 外部サーバーからGmailへコピー | 自分で取り込み対象や状態管理を制御できる |
+## きっかけはGmailの外部POP取得終了
 
-Gmail側へ保存できれば、出所をラベルで区別しながら、検索やWeb・モバイルでの閲覧をGmailに集約できます。Gmail純正フィルタを使った整理や、Gmail側のAI機能を利用することも、この方式を選んだ背景です。
+これまで私は、会社のメールなどをGmailへ取り込み、Gmailをメール管理の中心として使ってきました。
 
-ただし、フィルタの最終結果は通常受信と完全に同じとは限りません。AI機能もアカウント・契約・提供条件に依存し、このBridgeが有効化する機能ではありません。AIによる検索・要約の動作は、本記事で確認済みの機能としては扱いません。
+Googleは、Gmailの「他のアカウントのメールを確認」で使われてきた外部POP取得機能を終了する方針を案内しています。
 
-### POP取得終了の対象と時期
+そこで最初に考えたのが、
 
-Google公式の[変更案内](https://support.google.com/mail/answer/16604719?hl=en)では、Gmailが外部アカウントからPOPでメールを取得する機能は、新規ユーザーへの提供を2026年第1四半期後に終了し、既存ユーザーは2027年1月まで利用可能としています。[サードパーティアカウントのサポート変更](https://support.google.com/mail/answer/17101213?hl=ja)も確認してください。
+**「Thunderbirdなどのメールソフトで全部まとめればいいのでは？」**
 
-対象はGmail側の「他のアカウントのメールを確認」です。外部クライアントからGmailのメールをPOP・IMAPで読む機能や、Gmail APIへのアクセスまで終了するという意味ではありません。
+という方法でした。
 
-外部サーバーの自動転送が使えるなら、まずそちらを検討できます。Bridgeは、IMAPから取得してGmailへ保存する経路を自分で用意したい場合の選択肢です。
+Gmailも会社メールもThunderbirdへ登録すれば、確かに一つのアプリから確認できます。
 
-## 全体構成
+でも、実際に考えてみると、自分が欲しかったものは少し違いました。
 
-通常の取り込みでは、IMAPから取得したRFC 822メール原文をGmail APIへ渡します。Gmailが添付を理由に取り込みを拒否した場合だけ、Google Driveへの退避に切り替えます。
+## 「1つのアプリで見る」と「1つのGmailで管理する」は違う
+
+ThunderbirdやOutlookなどへ複数のメールアカウントを登録すれば、一つの画面でメールを見ることができます。
+
+モバイル版Gmailアプリにも、Gmail以外のIMAPアカウントを追加できます。
+
+ただし、これらは基本的に、
+
+**複数のメールボックスを、一つのクライアントから見ている**
+
+状態です。
+
+メールそのものは、それぞれ別のメールサーバーに存在しています。
+
+今回私が欲しかったのは、それではありませんでした。
+
+**会社メールや独自ドメインのメールそのものを、本家Gmailのメールボックスへ集約したい。**
+
+これがGmail Bridgeを作った一番大きな理由です。
+
+> **1つのアプリで見るのではなく、1つのGmailで管理する。**
+
+自分にとっての「メールの一元管理」はこちらでした。
+
+## なぜそこまでGmailへ入れたいのか
+
+理由は、Gmailが単なるメール閲覧アプリではないからです。
+
+普段使っている、
+
+- Gmail純正のフィルタ
+- ラベル
+- 高速な検索
+- アーカイブ
+- Web版とモバイル版で共通するメール環境
+
+を、会社メールなどでもそのまま使いたかったのです。
+
+特に大きいのが、**Gmail純正のフィルタとラベル**です。
+
+取引先ごとに分類する。
+
+宛先アドレスによってラベルを変える。
+
+特定の件名や送信者を自動整理する。
+
+こうしたルールをBridge側でもう一度作るのではなく、これまで使ってきたGmail側へ任せたい。
+
+さらに今後、Gmail側のAI機能や、Gmailと連携するAIサービスを利用する場面が増えることを考えても、必要なメールがGmail本体に存在していることには意味があると考えました。
+
+AI機能そのものは契約や提供条件によって異なりますし、このBridgeが何かを有効化するわけではありません。
+
+ただ、
+
+**メール管理の基盤をGmailへ集約しておく**
+
+こと自体には、今後さらにメリットが増えると思っています。
+
+## Gmail Bridgeは「整理するツール」ではない
+
+この考え方から、Bridge自身にはなるべく余計なメール整理機能を持たせていません。
+
+Bridgeが基本的に行うのは、
+
+1. 外部メールサーバーからメールを取得する
+2. Gmail APIを使って本家Gmailへ取り込む
+3. 取り込み時点の既読・未読状態を反映する
+4. どのBridge元から来たか分かる出所ラベルを付ける
+
+ところまでです。
+
+その後の整理はGmailに任せます。
+
+送信者、宛先、件名などによる振り分けは、Gmail純正のフィルタを使います。
+
+ただし、取り込み後にBridgeが出所ラベルや未読状態を反映するため、フィルタで既読にする操作などは通常受信と同じ結果になるとは限りません。使いたいルールは少数のメールで確認してください。
+
+スパム判定も基本的にはGmail側の判断を尊重します。
+
+Bridge側で独自の分類ルールを増やしてしまうと、結局もう一つメール管理システムを作ることになってしまいます。
+
+それは今回やりたかったことではありません。
+
+> **Gmail Bridgeはメールを運ぶ役。整理するのはGmail。**
+
+これが基本方針です。
+
+## 受信条件は、元のメールサーバーを尊重したい
+
+もう一つ重要だったのが、ブリッジ元メールサーバーの扱いです。
+
+会社メールや独自ドメインのメールサーバーでは正常に受信できているのに、同じメールをGmailへ取り込もうとすると、Gmailの添付ファイル制限によって拒否されることがあります。
+
+たとえば、元サーバーでは許可されている添付ファイルでも、Gmail側のセキュリティポリシーでは受け付けてもらえないケースがあります。
+
+そこでGmail Bridgeでは、
+
+**Gmailが添付ファイルを理由に取り込みを拒否した場合だけ**
+
+Google Driveへの退避処理を行います。
 
 ```mermaid
 flowchart TD
-    I["外部IMAPから原文・フラグを取得"] --> S["SQLiteで処理状態を確認"]
-    S --> G["Gmail APIでimport"]
-    G -->|成功| P["Gmail IDを保存"]
-    G -->|添付拒否| D["Driveへ添付を退避"]
-    D --> F["本文とリンクをimport"]
-    F --> P
-    P --> L["ラベル・未読状態を反映"]
-    L --> N["独立したntfy通知処理"]
+    S["元メールサーバー"] --> B["Gmail Bridge"]
+    B --> I["Gmailへ通常import"]
+    I -->|成功| G["Gmailへ保存"]
+    I -->|添付拒否| D["添付をGoogle Driveへ保存"]
+    D --> L["本文とDriveリンクをGmailへ保存"]
 ```
 
-コンテナ内の `app.service` が処理を繰り返し、各サイクル終了後に60秒待機します。IMAP IDLEによるプッシュ受信ではなく、定期巡回方式です。処理時間もあるため、厳密な60秒間隔ではありません。
+Gmailのセキュリティ制限を無効にしたり、拒否された添付を無理にGmailへ押し込んだりするわけではありません。
 
-設定とOAuthトークンに加え、SQLite DB・バックアップ・ログをホスト側へ永続化します。コンテナを作り直しても処理記録を失わない構成です。
+Gmailが受け付けない添付はDriveへ分離します。
 
-## 設計で気をつけたこと
+一方、本文はGmailで確認でき、必要なら元メールに付いていた添付へアクセスできます。
 
-### 1. 元のメールを取得時に既読にしない
+また、BridgeがDrive上のファイルを勝手に一般公開することもありません。
 
-IMAP取得には `BODY.PEEK[]` を使います。Bridgeがメールを読んだだけで、元サーバー側の未読が消えるのを避けるためです。
+目指したのは、
 
-取得時の `\Seen` フラグを確認し、元が未読ならGmailへ `UNREAD` ラベルを付けます。加えて、設定した出所ラベルを付けて、Gmail本来の受信メールと区別できるようにしました。
+> **元メールサーバーで受信できていたメールを、Gmail側の制限だけを理由に見失わないこと**
 
-これは取得時点の状態を反映する処理です。取り込み後に元サーバーやGmailで既読状態を変えても、双方へ同期し続けるわけではありません。
+です。
 
-### 2. Gmailへの保存には `messages.import` を使う
+つまり、
 
-保存に使用しているのは [`users.messages.import`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/import) です。Googleの説明では、通常のメール配信に近いスキャン・分類を伴って、認証ユーザーのメールボックスへ取り込むAPIです。メールを相手に送信するAPIではありません。
+**受信条件は元メールサーバーを尊重し、整理と活用はGmailに任せる。**
 
-実装の中心は次の呼び出しです。`raw` には、原文をbase64url形式にした値を渡します。
+これもGmail Bridgeの基本的な考え方です。
 
-```python
-result = (
-    service.users().messages().import_(
-        userId="me",
-        body={"raw": raw},
-        internalDateSource="dateHeader",
-    ).execute()
-)
-gmail_message_id = result["id"]
-```
+## 全体としてはこんな仕組み
 
-GmailへのIMAPコピーではなく、このAPI経由で取り込み、Gmail側での整理につなげる設計にしました。
+仕組み自体は比較的シンプルです。
 
-注意点は、取り込み後にBridge自身がラベルと未読状態を反映することです。たとえばGmailフィルタで既読にするルールと、Bridgeが未読を付ける処理は結果に影響します。使いたいフィルタは、少数の試験メールで確認する必要があります。
+外部メールサーバーからはIMAPで取得します。
 
-設定の `force_not_spam=true` は取り込み後のSPAMラベル解除であり、受信トレイへの強制投入ではありません。初期設定はfalseです。
+Gmailへの保存にはGmail APIの `users.messages.import` を使っています。
 
-### 3. 取り込みとラベル処理を一度に成功する前提にしない
+そのため、単純にGmailへIMAPコピーする方式とは少し異なります。
 
-メールの識別には、SQLiteへ `mailbox`・`UIDVALIDITY`・`UID` を保存します。UIDだけで管理せず、メールボックスとその世代を含めて識別する設計です。
+取り込んだメールを、自分のGmailでフィルタ・ラベル・検索を使って管理します。添付拒否時だけ、先ほどの図のDrive退避経路へ切り替わります。
 
-Gmailへの取り込みが成功したら、Gmail IDをpending状態として保存し、その後でラベルなどを反映します。後半の処理が失敗した場合は、次回に保存済みIDから再開します。
+通知が必要な場合はntfyにも対応しています。
 
-ただし、**重複を完全に防ぐ保証はありません**。Gmail側で成功してからローカルDBへIDを保存するまでに停止すると、次回に再取り込みする可能性があります。外部APIとSQLiteを一つのトランザクションにはできないため、この短い区間は既知の制限として残しています。
+## 常駐運用で必要だった部分
 
-### 4. 通知の失敗でメールを取り込み直さない
+実際に常駐させるとなると、単純にIMAPから取得してGmailへ取り込むだけでは足りませんでした。
 
-通知はntfyを利用し、メール取り込みとは別の状態として管理しています。
+たとえば、
 
-メールがGmailへ保存できた後に通知だけ失敗しても、メールを再importする必要はありません。次の巡回では、pendingになっている通知だけを再送します。
+- Gmailへの取り込みは成功したが、その後の処理で止まった
+- 通知だけ失敗した
+- IMAPサーバーへ一時的に接続できなかった
+- NASが再起動した
+- OAuthトークンが更新された
+- 同じメールを二重に取り込みたくない
 
-通知と保存を分けることで、「通知をもう一度送るためにメールが増える」という動作を避けています。Gmailアプリ自身の通知設定や配信条件とは別の通知経路です。
+といったことを考える必要があります。
 
-通常の新着通知にはメール本文や件名を含めません。ただしIMAP障害通知には接続エラーの文字列が含まれます。ntfyのtopicや認証情報は公開せず、アクセス制御を確認してから使います。
+そのため現在は、
 
-### 5. 添付退避は、添付拒否時だけ行う
+- SQLiteによる処理状態管理
+- 途中状態からの再開
+- 通知処理の分離
+- IMAP接続リトライ
+- 障害・復旧通知
+- SQLiteバックアップ
+- ログ保存
+- 二重起動防止
+- 元メールを一定期間後に削除するcleanup
 
-Gmailが添付を拒否したと判定した場合、添付をDriveへ保存し、本文とDriveリンクを含む軽量メールを取り込みます。通信障害や、添付と無関係なAPIエラーまでDrive退避へ流す設計にはしていません。
+なども実装しています。
 
-この経路ではGmailに保存されるメールは原文そのものではなく、リンクを含む再構成メールです。また、Driveの共有権限を「誰でもアクセス可能」に変える処理はありません。リンク先を開くには権限を持つGoogleアカウントが必要です。
+このあたりの詳細はREADMEとリリースノートへまとめています。
 
-## Dockerで動かすまでの流れ
+## Dockerで公開しています
 
-公開イメージは `linux/amd64` と `linux/arm64` に対応しています。現在の固定版は次で取得できます。
+現在の正式版は `v1.0.0` です。
+
+Docker Hubにもmulti-architectureイメージを公開しています。
 
 ```bash
 docker pull sosboy/gmail-bridge:1.0.0
 ```
 
-`latest` などの追従タグもありますが、初回導入はバージョンを固定した方が、どの版を検証したか明確になります。
+対応しているのは、`linux/amd64` と `linux/arm64` です。
 
-必要な準備は次の通りです。詳細は [INSTALL.md](https://github.com/sosboy-san/gmail_bridge/blob/main/INSTALL.md) と [DOCKER_RELEASE.md](https://github.com/sosboy-san/gmail_bridge/blob/main/DOCKER_RELEASE.md) にまとめています。
+私はQNAP NASのContainer Station上で動かしています。
 
-1. 自分のGoogle CloudプロジェクトでGmail APIとGoogle Drive APIを有効にする。
-2. デスクトップアプリ用OAuthクライアントを作り、ブラウザを使えるPCで `make_token.py` を実行する。
-3. `config.ini`、`credentials.json`、`token.json` と、永続化する `data/`・`backups/`・`logs/` を用意する。
-4. 公開イメージ用Compose例をコピーし、マウント先とUID/GIDを実機へ合わせる。
-5. 初期化方針を決めてから常駐を開始する。
+コンテナを再起動しても、SQLite DB、OAuthトークン、バックアップ、ログなどはホスト側へ永続化する構成です。
 
-設定・トークン・保存先を準備した後、Linuxホストで実行する流れは次のようになります。
+導入手順をここへ全部書くとかなり長くなるため、実際に試す場合はGitHubのINSTALL.mdを参照してください。
 
-```bash
-cp docker-compose.image.example.yml docker-compose.yml
-export BRIDGE_UID=$(id -u)
-export BRIDGE_GID=$(id -g)
-
-docker compose config --quiet
-docker compose pull
-
-# 最新1通を対象として確認。Gmail・Driveへの送信は行わない。
-docker compose run --rm gmail-bridge python -m app.main init --latest 1 --dry-run
-
-# 初回のみ：既存メールは取り込まず、以後の新着から開始する。
-docker compose run --rm gmail-bridge python -m app.main init --from-now
-
-docker compose up -d
-```
-
-ここで重要なのが初期化です。`init --from-now` は、現在あるメールのUIDをignoredとして記録します。過去メールも取り込む場合は `init --all` などを選びます。
-
-一方、`init --latest 1` は範囲外のメールをignoredにしません。1通だけ試験取り込みした後に、そのまま通常runを始めると、残りの未処理の過去メールも対象になります。**「最新1通で試す」と「新着だけで運用を始める」は別の操作**です。既存DBで運用中の更新時には再初期化しません。
-
-`init --dry-run` でもDBの作成・スキーマ移行は起こり得ます。また、`run --dry-run` はログ・DBバックアップ・IMAP障害／復旧通知が動くため、完全に無副作用なコマンドではありません。
-
-## QNAPで動かして分かったこと
-
-2026年9月30日の[正式Release](https://github.com/sosboy-san/gmail_bridge/releases/tag/v1.0.0)には、QNAP Container StationのGUIから公開イメージ1.0.0を導入し、定期実行、OAuth更新、新着1通の取り込み、ntfy通知成功をログで確認した結果を記録しています。
-
-期限切れOAuthトークンを交換した後に、取り込みが再開することも確認しています。実際に動かすと、メール処理のコードだけでなく、認証の継続と永続ファイルの扱いが運用の要点になります。
-
-### OAuthは初回認証だけでは終わらない
-
-現在の実装は `https://mail.google.com/` と `drive.file` のスコープを使います。Gmail側は広い権限なので、認可内容を確認してください。
-
-Googleの[OAuth説明](https://developers.google.com/identity/protocols/oauth2#expiration)では、ExternalかつTestingのアプリでこのようなスコープを使う場合、リフレッシュトークンは通常7日で期限切れになります。継続運用前に同意画面の公開状態と必要な手続きを確認する必要があります。
-
-また、`token.json` は自動更新時に書き換えるため、読み取り専用マウントにはできません。設定ファイルを読めるだけでなく、トークンやDBを書き換えられる権限も必要です。
-
-### 常駐と手動操作を重ねない
-
-通常runにはLinuxの `flock` による排他がありますが、init・cleanupの手動実行まで一括で守るものではありません。手動で実行する際は常駐を止めます。同じDBを複数コンテナから使う運用もしません。
-
-バックアップはUTC日付ごとに作り、最新14ファイルを保持します。cleanupの日次判定はコンテナのローカル日付で、Composeの既定はAsia/Tokyoです。「14ファイル保持」と「14暦日保持」が同じではないことも、運用上の注意点です。
-
-## 検証範囲と、残っている制限
-
-自動検証では、Linux上の32件のオフラインテストに加え、静的検査、Compose検証、Docker build、CLI起動、イメージ内のタイムゾーン検証を実施しています。通知だけの再送やpending再開などは、架空データとモックで検証しています。
-
-これと、実サービスへ接続したQNAPでの確認は別です。Drive fallback、期限到来後の実削除、NAS・コンテナ再起動後の復帰など、全機能の実機試験が完了したという意味ではありません。
-
-主な制限は次の通りです。
-
-| 項目 | 現在の仕様・制限 |
-| --- | --- |
-| 実行環境 | LinuxコンテナまたはLinux上のPython 3.12。Windowsでの常駐は対象外 |
-| IMAP接続 | STARTTLS方式のみ。993番の暗黙TLSやIMAP OAuthには未対応 |
-| 取り込み対象 | 1設定につき1アカウント・1フォルダ。既定はINBOXで、再帰巡回しない |
-| 同期 | 一方向の取り込み。既読状態や整理操作を継続的に相互反映しない |
-| 重複 | API成功とDB保存の間の停止で発生し得る。Drive保存にも同様の区間がある |
-| 終了コード | 個別メールの取り込みが失敗してもrunが0で終了する場合がある。ログ・状態確認が必要 |
-| 復旧通知 | IMAP復旧通知の送信失敗には、専用の再送処理がない |
-| 元メールの削除 | 初期設定は無効。UIDPLUS非対応では他クライアントとのEXPUNGE競合を完全には防げない |
-| 送信・返信 | 外部アドレスでの送信を代替するツールではない。返信経路は別途用意する |
-
-削除を使う場合は、Gmailへの取り込み完了後に猶予期間を置き、UIDVALIDITYや削除対象などを確認するcleanupを利用します。それでも初回から有効にせず、コピーの内容と添付を確認してから、専用の試験メールで検証してください。
-
-実設定、OAuthトークン、DB、ログ、メール原文、添付はGitHubへ公開しません。業務メールをGmailやDriveへ移す場合は、所属組織のルールにも従ってください。
-
-## おわりに
-
-今回の中心は、外部メールを読むアプリを増やすことではなく、メールの保存先と整理の場所をGmailへ集約することでした。
-
-IMAPから原文を取得してGmail APIへ渡す部分に加え、取り込み後の処理を再開できる状態管理、通知だけの再送、OAuth更新、永続データの保持まで含めて、常駐運用の仕組みを整えました。
-
-同じように「外部メールをGmail本体へ入れたい」と考えている方が、自動転送・アプリへのアカウント追加・自前のBridgeを比較する際の参考になればと思います。
-
-設計整理、ドキュメント作成、公開準備にはChatGPTを活用しています。
-
-## 参考資料
-
-- [Gmail Bridge README](https://github.com/sosboy-san/gmail_bridge)
-- [Gmail Bridge v1.0.0 Release](https://github.com/sosboy-san/gmail_bridge/releases/tag/v1.0.0)
-- [リリースノート](https://github.com/sosboy-san/gmail_bridge/blob/v1.0.0/RELEASE_NOTES.md)
 - [導入手順](https://github.com/sosboy-san/gmail_bridge/blob/main/INSTALL.md)
-- [Docker公開・導入資料](https://github.com/sosboy-san/gmail_bridge/blob/main/DOCKER_RELEASE.md)
-- [GmailifyとPOPの変更に関するGoogle公式案内](https://support.google.com/mail/answer/16604719?hl=en)
+- [Docker Hub版の導入・公開方法](https://github.com/sosboy-san/gmail_bridge/blob/main/DOCKER_RELEASE.md)
+- [既知の制限・リリースノート](https://github.com/sosboy-san/gmail_bridge/blob/main/RELEASE_NOTES.md)
+
+## 万能なメール同期ソフトではない
+
+Gmail Bridgeは、双方向同期ソフトではありません。
+
+基本的には、外部メールサーバーからGmailへの一方向のBridgeです。
+
+現在の主な制限としては、
+
+- IMAPはSTARTTLS方式を対象としている
+- 1設定につき1アカウント・1メールボックス
+- 取り込み後の既読状態などを元サーバーへ同期しない
+- 外部メールアドレスから送信する機能は持たない
+- Gmail API成功直後のクラッシュなど、完全に重複を排除できない短い区間がある
+
+などがあります。
+
+また、元メール削除機能は初期状態では無効です。
+
+最初は削除せず、Gmailへ正しく取り込めていることを十分確認してから使う前提にしています。
+
+## 作ってみて改めて分かったこと
+
+今回作りたかったものは、メールクライアントではありませんでした。
+
+ThunderbirdにGmailと会社メールを登録すれば、確かに一つの画面でメールを見ることはできます。
+
+モバイルGmailアプリにも外部メールアカウントを追加できます。
+
+でも、自分が欲しかったのは、
+
+**すべてのメールをGmailという一つの基盤で管理すること**
+
+でした。
+
+会社メールだから別。
+
+独自ドメインだから別。
+
+という状態ではなく、一度Gmailへ入れてしまえば、あとはGmailのフィルタやラベルを使って整理する。
+
+検索もGmail。
+
+WebでもスマートフォンでもGmail。
+
+将来的にAIや別サービスと連携するときも、Gmailを一つの入口として扱える。
+
+そのためのBridgeです。
+
+> **1つのアプリに集めるのではなく、1つのGmailに集める。**
+
+同じようにGmailをメール管理の中心として使っていて、外部POP取得終了後の運用を考えている方の選択肢の一つになればと思います。
+
+設計整理、ドキュメント作成、公開準備にはOpenAIのChatGPTも活用しました。
+
+## 参考
+
+- [Gmail Bridge - GitHub](https://github.com/sosboy-san/gmail_bridge)
+- [Gmail Bridge v1.0.0](https://github.com/sosboy-san/gmail_bridge/releases/tag/v1.0.0)
+- [Docker Hub - sosboy/gmail-bridge](https://hub.docker.com/r/sosboy/gmail-bridge)
+- [INSTALL.md](https://github.com/sosboy-san/gmail_bridge/blob/main/INSTALL.md)
+- [RELEASE_NOTES.md](https://github.com/sosboy-san/gmail_bridge/blob/main/RELEASE_NOTES.md)
+- [GmailifyとPOPの変更に関するGoogle公式案内](https://support.google.com/mail/answer/16604719?hl=ja)
 - [サードパーティメールアカウントのサポート変更](https://support.google.com/mail/answer/17101213?hl=ja)
 - [Gmail API: users.messages.import](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/import)
-- [Google OAuth: Refresh token expiration](https://developers.google.com/identity/protocols/oauth2#expiration)
