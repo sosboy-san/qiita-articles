@@ -1,0 +1,11 @@
+.remote
+node_modules
+.env
+.env.*
+**/credentials.json
+**/.config/qiita-cli/
+*.pem
+*.key
+*.log
+.DS_Store
+Thumbs.db

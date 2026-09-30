@@ -1,0 +1,17 @@
+{
+  "name": "qiita-articles",
+  "version": "1.0.0",
+  "description": "GitHubを正本とする複数プロジェクトのQiita技術記事管理",
+  "private": true,
+  "engines": { "node": ">=22.22.1" },
+  "scripts": {
+    "new": "node scripts/new-article.cjs",
+    "preview": "qiita preview",
+    "qiita:version": "qiita version"
+  },
+  "keywords": [],
+  "type": "commonjs",
+  "devDependencies": {
+    "@qiita/qiita-cli": "1.10.0"
+  }
+}
