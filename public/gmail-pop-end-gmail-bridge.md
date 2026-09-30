@@ -4,11 +4,11 @@ tags:
   - Gmail
   - Python
   - Docker
-  - IMAP
-  - QNAP
+  - imap
+  - Qnap
 private: false
-updated_at: ''
-id: null
+updated_at: '2026-09-30T21:57:50+09:00'
+id: 7db1b0f47bbaf686a1dc
 organization_url_name: null
 slide: false
 ignorePublish: false
