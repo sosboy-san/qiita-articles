@@ -40,7 +40,9 @@ Pixel 3 XLから始まり、4、5、7、初代Fold、9 Pro Fold、そして10 Pr
 
 まずはこちらをご覧いただきたい。
 
-![Google Storeの修理・交換履歴。端末識別情報はマスク済み](https://raw.githubusercontent.com/sosboy-san/qiita-articles/main/assets/pixel-fold/pixel-repair-history-masked.png)
+![Google Storeの修理・交換履歴。端末識別情報はマスク済み](https://raw.githubusercontent.com/sosboy-san/qiita-articles/main/assets/pixel-fold/pixel-repair-history-fullres.png)
+
+[原寸PNGを開く](https://raw.githubusercontent.com/sosboy-san/qiita-articles/main/assets/pixel-fold/pixel-repair-history-fullres.png)
 
 ## 全部、私一人の履歴である。
 
@@ -52,7 +54,9 @@ Pixel 3 XLから始まり、4、5、7、初代Fold、9 Pro Fold、そして10 Pr
 
 一方、こちらは購入履歴。Googleへの愛情だけは、きちんと積み重なっている。
 
-![Google Storeの購入履歴。注文番号・アカウント表示はマスク済み](https://raw.githubusercontent.com/sosboy-san/qiita-articles/main/assets/pixel-fold/pixel-order-history-masked.png)
+![Google Storeの購入履歴。注文番号・アカウント表示はマスク済み](https://raw.githubusercontent.com/sosboy-san/qiita-articles/main/assets/pixel-fold/pixel-order-history-fullres.png)
+
+[原寸PNGを開く](https://raw.githubusercontent.com/sosboy-san/qiita-articles/main/assets/pixel-fold/pixel-order-history-fullres.png)
 
 ### 第1章：すべての始まり、初代Pixel Fold
 
@@ -138,7 +142,9 @@ Pixel 9 Pro Foldの交換対応で、なんとPixel 10 Pro Foldが届くこと�
 
 # <font color="#ba711d">伝説の無償アップグレードである（笑）。</font>
 
-![交換元はPixel 9 Pro Fold、交換用はPixel 10 Pro Fold、合計0円。個人情報・識別番号はマスク済み](https://raw.githubusercontent.com/sosboy-san/qiita-articles/main/assets/pixel-fold/pixel-upgrade-details-masked.png)
+![交換元はPixel 9 Pro Fold、交換用はPixel 10 Pro Fold、合計0円。個人情報・識別番号はマスク済み](https://raw.githubusercontent.com/sosboy-san/qiita-articles/main/assets/pixel-fold/pixel-upgrade-details-fullres.png)
+
+[原寸PNGを開く](https://raw.githubusercontent.com/sosboy-san/qiita-articles/main/assets/pixel-fold/pixel-upgrade-details-fullres.png)
 
 > Pixel 9 Pro Fold  
 > ↓  
