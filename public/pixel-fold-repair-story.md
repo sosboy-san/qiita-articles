@@ -1,15 +1,17 @@
 ---
-title: '私はGoogle Pixelが好きだ。たぶんGoogleも私が好きだ。'
+title: 私はGoogle Pixelが好きだ。たぶんGoogleも私が好きだ。
 tags:
   - Android
-  - Pixel
+  - pixel
   - トラブルシューティング
 private: false
-updated_at: ''
-id: null
+updated_at: '2026-10-23T22:29:46+09:00'
+id: 247e1c2f01a62f269ae3
 organization_url_name: null
 slide: false
 ignorePublish: false
+posting_campaign_uuid: null
+agreed_posting_campaign_term: false
 ---
 
 **初代Pixel Foldから10 Pro Foldまで。Googleの交換センターの常連になった男の実話**
