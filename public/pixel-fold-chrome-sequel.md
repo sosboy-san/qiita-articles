@@ -3,15 +3,17 @@ title: 私はPixel Foldが好きだ。だからChromeまで改造する羽目に
 tags:
   - Android
   - Chrome
-  - Pixel
+  - pixel
   - Termux
   - Shizuku
 private: true
-updated_at: ''
-id: null
+updated_at: '2026-10-29T16:13:46+09:00'
+id: a8e7f660692c014d20f7
 organization_url_name: null
 slide: false
 ignorePublish: false
+posting_campaign_uuid: null
+agreed_posting_campaign_term: false
 ---
 
 **～大画面なら文字も大きいと思った？ 残念、PC表示です。～**
