@@ -7,7 +7,7 @@ tags:
   - Termux
   - Shizuku
 private: true
-updated_at: '2026-10-29T16:13:46+09:00'
+updated_at: '2026-10-29T16:46:36+09:00'
 id: a8e7f660692c014d20f7
 organization_url_name: null
 slide: false
